@@ -206,6 +206,7 @@
             this.button1.TabIndex = 7;
             this.button1.Text = "开启以太网链接";
             this.button1.UseVisualStyleBackColor = true;
+            this.button1.Click += new System.EventHandler(this.button1_Click);
             // 
             // _btnHighSpeedDataEthernetCommunicationInitalize
             // 
