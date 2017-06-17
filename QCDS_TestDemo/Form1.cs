@@ -11,6 +11,9 @@ using System.Windows.Forms;
 using QCDS_TestDemo;
 using QCDS_TestDemo.Properties;
 using QCDS_TestDemo.Datas;
+using System.Windows.Forms.DataVisualization.Charting;
+using MongoDB.Bson;
+using MongoDB.Driver;
 
 namespace QCDS_TestDemo
 {
@@ -81,6 +84,17 @@ namespace QCDS_TestDemo
 
         #endregion
 
+        #region Struct
+        private struct BatchRecord
+        {
+            public string date;
+            public string time;
+            public int profileCount;
+            public int pointCount;
+            public double interval;
+            public List<int[]> datas;
+        }
+        #endregion
 
         #region Field
 
@@ -102,7 +116,16 @@ namespace QCDS_TestDemo
         private LJV7IF_PROFILE_INFO[] _profileInfo;
         /// <summary>Array of controller information</summary>
         private DeviceData[] _deviceData;
-       
+
+        private int currentBatchProfileCount = 0;
+
+        private int singleProfilePointCount = 400;
+
+        private bool singleBatchFinish = true;
+
+        private List<int[]> currentDatas;
+
+        private List<double> xscale = new List<double>();
         #endregion
 
 
@@ -124,8 +147,12 @@ namespace QCDS_TestDemo
             }
             _profileInfo = new LJV7IF_PROFILE_INFO[NativeMethods.DeviceCount];
             
+        }
 
-            
+        private void Form1_Load(object sender, EventArgs e)
+        {
+            OpenEthernetConnection();
+            ReadAllSettings();
         }
 
         private void _btnHighSpeedDataEthernetCommunicationInitalize_Click(object sender, EventArgs e)
@@ -187,11 +214,12 @@ namespace QCDS_TestDemo
 
             ThreadSafeBuffer.ClearBuffer(_currentDeviceId);
             _profileCount.Text = "0";
+            currentProfileCount.Text = "0";
             int rc = NativeMethods.LJV7IF_StartHighSpeedDataCommunication(_currentDeviceId);
             // @Point
             //  If the LJ-V does not measure the profile for 30 seconds from the start of transmission,
             //  "0x00000008" is stored in dwNotify of the callback function.
-            
+            currentBatchProfileCount = 0;
             timer1.Start();
             AddLogResult(rc, Resources.SID_START_HIGH_SPEED_DATA_COMMUNICATION);
         }
@@ -199,6 +227,7 @@ namespace QCDS_TestDemo
         private void _btnStopHighSpeedDataCommunication_Click(object sender, EventArgs e)
         {
             int rc = NativeMethods.LJV7IF_StopHighSpeedDataCommunication(_currentDeviceId);
+            timer1.Stop();
             AddLogResult(rc, Resources.SID_STOP_HIGH_SPEED_DATA_COMMUNICATION);
         }
 
@@ -211,40 +240,14 @@ namespace QCDS_TestDemo
             _deviceData[_currentDeviceId].Status = DeviceStatus.Ethernet;
             _deviceData[_currentDeviceId].EthernetConfig = config;
 
+            timer1.Stop();
+            profileClear();
             //_deviceStatusLabels[_currentDeviceId].Text = _deviceData[_currentDeviceId].GetStatusString();
         }
 
         private void button1_Click(object sender, EventArgs e)
         {
-            Rc rc = Rc.Ok;
-            // Initialize the DLL
-            rc = (Rc)NativeMethods.LJV7IF_Initialize();
-            if (!CheckReturnCode(rc)) return;
-
-            // Open the communication path
-
-            // Generate the settings for Ethernet communication.
-            try
-            {
-                _ethernetConfig.abyIpAddress = new byte[] {
-                        Convert.ToByte(_txtIpFirstSegment.Text),
-                        Convert.ToByte(_txtIpSecondSegment.Text),
-                        Convert.ToByte(_txtIpThirdSegment.Text),
-                        Convert.ToByte(_txtIpFourthSegment.Text)
-                    };
-                _ethernetConfig.wPortNo = Convert.ToUInt16(_txtCommandPort.Text);
-                
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show(this, ex.Message);
-                return;
-            }
-
-            rc = (Rc)NativeMethods.LJV7IF_EthernetOpen(Define.DEVICE_ID, ref _ethernetConfig);
-
-            if (!CheckReturnCode(rc)) return;
-            AddLog("以太网通信开启！");
+            OpenEthernetConnection();
         }
 
         private void button2_Click(object sender, EventArgs e)
@@ -296,6 +299,7 @@ namespace QCDS_TestDemo
                     AddError(dwError);
                 }
             }
+            ReadTriggerType();
         }
 
         private void button3_Click(object sender, EventArgs e)
@@ -342,6 +346,7 @@ namespace QCDS_TestDemo
                     AddError(dwError);
                 }
             }
+            ReadTriggerInterval();
         }
 
         private void button4_Click(object sender, EventArgs e)
@@ -388,11 +393,73 @@ namespace QCDS_TestDemo
                     AddError(dwError);
                 }
             }
+            ReadBatchPoints();
         }
 
         private void button5_Click(object sender, EventArgs e)
         {
+            byte[] data;
+            byte depth;
+            LJV7IF_TARGET_SETTING targetSetting = new LJV7IF_TARGET_SETTING();
 
+            data = new byte[NativeMethods.ProgramSettingSize];
+            data[0] = (byte)0x3;
+
+            depth = Convert.ToByte("01", 16);
+            targetSetting.byType = Convert.ToByte("10", 16);
+            targetSetting.byCategory = Convert.ToByte("01", 16);
+            targetSetting.byItem = Convert.ToByte("02", 16);
+            targetSetting.byTarget1 = Convert.ToByte("00", 16);
+            targetSetting.byTarget2 = Convert.ToByte("00", 16);
+            targetSetting.byTarget3 = Convert.ToByte("00", 16);
+            targetSetting.byTarget4 = Convert.ToByte("00", 16);
+
+            string trimStr = "0";
+            switch (comboBox2.Text)
+            {
+                case "FULL":
+                    {
+                        trimStr = "0";
+                        singleProfilePointCount = 800;
+                        break;
+                    }
+                case "MIDDLE":
+                    {
+                        trimStr = "1";
+                        singleProfilePointCount = 600;
+                        break;
+                    }
+                case "SMALL":
+                    {
+                        trimStr = "2";
+                        singleProfilePointCount = 400;
+                        break;
+                    }
+            }
+           
+            if (trimStr.Length > 0)
+            {
+                string[] aSrc = trimStr.Split(',');
+                if (aSrc.Length > 0)
+                {
+                    data = Array.ConvertAll<string, byte>(aSrc,
+                        delegate (string s) { return Convert.ToByte(s, 16); });
+                }
+            }
+            Array.Resize(ref data, Convert.ToInt32("1"));
+
+            using (PinnedObject pin = new PinnedObject(data))
+            {
+                uint dwError = 0;
+                int rc = NativeMethods.LJV7IF_SetSetting(_currentDeviceId, depth, targetSetting,
+                    pin.Pointer, (uint)data.Length, ref dwError);
+                AddLogResult(rc, Resources.SID_SET_SETTING);
+                if (rc != (int)Rc.Ok)
+                {
+                    AddError(dwError);
+                }
+            }
+            ReadXRange();
         }
 
         private void button6_Click(object sender, EventArgs e)
@@ -485,8 +552,23 @@ namespace QCDS_TestDemo
                     AddError(dwError);
                 }
             }
+            ReadSampleFrequency();
         }
 
+        private void button7_Click(object sender, EventArgs e)
+        {
+            ReadAllSettings();
+        }
+
+        private void numericUpDown3_ValueChanged(object sender, EventArgs e)
+        {
+            try
+            {
+                ChartFigure(currentDatas[(int)numericUpDown3.Value]);
+            }
+            catch { }
+            
+        }
 
         private void _btnInitialize_Click(object sender, EventArgs e)
         {
@@ -508,26 +590,76 @@ namespace QCDS_TestDemo
             for (int i = 0; i < NativeMethods.DeviceCount; i++)
             {
                 List<int[]> data = ThreadSafeBuffer.Get(i, out notify, out batchNo);
-                if (data.Count == 0) continue;
-
-                foreach (int[] profile in data)
+                
+                if (data.Count != 0)
                 {
-                    if (_deviceData[i].ProfileData.Count < Define.WRITE_DATA_SIZE)
+                    if(singleBatchFinish)
                     {
-                        _deviceData[i].ProfileData.Add(new ProfileData(profile, _profileInfo[i]));
+                        currentProfileCount.Text = "0";
+                        currentDatas = new List<int[]>();
                     }
-                    count++;
+                    singleBatchFinish = false;
+                    foreach (int[] profile in data)
+                    {
+                        if (_deviceData[i].ProfileData.Count < Define.WRITE_DATA_SIZE)
+                        {
+                            _deviceData[i].ProfileData.Add(new ProfileData(profile, _profileInfo[i]));
+                            int[] temp = new int[singleProfilePointCount * 2];
+                            Array.Copy(profile, 6, temp, 0, singleProfilePointCount * 2);
+                            currentDatas.Add(temp);
+                            //ChartFigure(temp);
+                        }
+                        count++;
+                        currentBatchProfileCount++;
+                        numericUpDown3.Maximum = currentBatchProfileCount - 1;
+                        numericUpDown3.Value = currentBatchProfileCount - 1;
+                    }
+                    _profileCount.Text = (Convert.ToInt32(_profileCount.Text) + count).ToString();
+                    currentProfileCount.Text = (Convert.ToInt32(currentProfileCount.Text) + count).ToString();
                 }
-                _profileCount.Text = (Convert.ToInt32(_profileCount.Text) + count).ToString();
-
                 if (notify != 0)
                 {
+                    AddLog(string.Format("当前批计数达到上限,或中断当前批处理"));
                     AddLog(string.Format("  notify[{0}] = {1,0:x8}\tbatch[{0}] = {2}", i, notify, batchNo));
-                    AddLog(_profileCount.Text);
+                    AddLog(string.Format("当前批次轮廓数量 = {0}\t总计获得轮廓数量 = {1}", currentBatchProfileCount,_profileCount.Text));
+                    currentBatchProfileCount = 0;
+                    singleBatchFinish = true;
+                    numericUpDown3.Maximum = decimal.Parse(currentProfileCount.Text) - 1;
+                    numericUpDown3.Value = decimal.Parse(currentProfileCount.Text) - 1;
                 }
+
             }
             
         }
+
+        private void chart1_GetToolTipText(object sender, System.Windows.Forms.DataVisualization.Charting.ToolTipEventArgs e)
+        {
+            if (e.HitTestResult.ChartElementType == ChartElementType.DataPoint)
+            {
+                int i = e.HitTestResult.PointIndex;
+                DataPoint dp = e.HitTestResult.Series.Points[i];
+                //分别显示x轴和y轴的数值，其中{1:F3},表示显示的是float类型，精确到小数点后3位。  
+                e.Text = string.Format("X:{0:F2}\tY:{1:F6} ", dp.XValue, dp.YValues[0]);
+            }
+
+
+        }
+
+        private void chart2_GetToolTipText(object sender, ToolTipEventArgs e)
+        {
+            if (e.HitTestResult.ChartElementType == ChartElementType.DataPoint)
+            {
+                int i = e.HitTestResult.PointIndex;
+                DataPoint dp = e.HitTestResult.Series.Points[i];
+                //分别显示x轴和y轴的数值，其中{1:F3},表示显示的是float类型，精确到小数点后3位。  
+                e.Text = string.Format("X:{0:F2}\tY:{1:F6} ", dp.XValue, dp.YValues[0]);
+            }
+        }
+
+
+
+
+
 
         #region Log output
 
@@ -893,16 +1025,6 @@ namespace QCDS_TestDemo
             return false;
         }
 
-
-
-
-
-
-
-
-
-
-
         #endregion
 
         public static void ReceiveHighSpeedData(IntPtr buffer, uint size, uint count, uint notify, uint user)
@@ -929,6 +1051,400 @@ namespace QCDS_TestDemo
             ThreadSafeBuffer.Add((int)user, receiveBuffer, notify);
         }
 
-        
+        private void ChartFigure(int[] profile)
+        {
+            
+            float[] A = new float[singleProfilePointCount];
+            float[] B = new float[singleProfilePointCount];
+            List<float> p = new List<float>();
+            foreach(int x in profile)
+            {
+                p.Add((float)x / 100000);
+            }
+            Array.Copy(p.ToArray(), 0, A, 0, singleProfilePointCount);
+            Array.Copy(p.ToArray(), singleProfilePointCount, B, 0, singleProfilePointCount);
+            //chart1.Series["Profile"].Points.DataBindY(A);
+            //chart2.Series["Profile"].Points.DataBindY(B);
+            chart1.Series["Profile"].Points.DataBindXY(xscale, A);
+            chart2.Series["Profile"].Points.DataBindXY(xscale, B);
+        }
+
+        private void ReadBatchPoints()
+        {
+            byte[] data = new byte[2];
+            byte depth;
+            LJV7IF_TARGET_SETTING targetSetting = new LJV7IF_TARGET_SETTING();
+
+            data = new byte[NativeMethods.ProgramSettingSize];
+            data[0] = (byte)0x3;
+
+            depth = Convert.ToByte("01", 16);
+            targetSetting.byType = Convert.ToByte("10", 16);
+            targetSetting.byCategory = Convert.ToByte("00", 16);
+            targetSetting.byItem = Convert.ToByte("0A", 16);
+            targetSetting.byTarget1 = Convert.ToByte("00", 16);
+            targetSetting.byTarget2 = Convert.ToByte("00", 16);
+            targetSetting.byTarget3 = Convert.ToByte("00", 16);
+            targetSetting.byTarget4 = Convert.ToByte("00", 16);
+
+            //string tempWord = ((int)numericUpDown2.Value).ToString("X4");
+            //string trimStr = tempWord.Remove(0, 2) + "," + tempWord.Remove(2);
+
+            //if (trimStr.Length > 0)
+            //{
+            //    string[] aSrc = trimStr.Split(',');
+            //    if (aSrc.Length > 0)
+            //    {
+            //        data = Array.ConvertAll<string, byte>(aSrc,
+            //            delegate (string s) { return Convert.ToByte(s, 16); });
+            //    }
+            //}
+            Array.Resize(ref data, Convert.ToInt32("2"));
+
+            using (PinnedObject pin = new PinnedObject(data))
+            {
+                int rc = NativeMethods.LJV7IF_GetSetting(_currentDeviceId, depth, targetSetting,
+                    pin.Pointer, (uint)data.Length);
+                AddLogResult(rc, Resources.SID_GET_SETTING);
+                if (rc == (int)Rc.Ok)
+                {
+                    AddLog("\t    0  1  2  3  4  5  6  7");
+                    StringBuilder sb = new StringBuilder();
+                    // Get data display
+                    for (int i = 0; i < 2; i++)
+                    {
+                        if ((i % 8) == 0) sb.Append(string.Format("  [0x{0:x4}] ", i));
+
+                        sb.Append(string.Format("{0:x2} ", data[i]));
+                        if (((i % 8) == 7) || (i == 2 - 1))
+                        {
+                            AddLog(sb.ToString());
+                            sb.Remove(0, sb.Length);
+                        }
+                    }
+                }
+                numericUpDown2.Value = data[1] * 256 + data[0];
+                numericUpDown3.Maximum = data[1] * 256 + data[0] - 1;
+                AddLog(string.Format("批处理点数 = {0}",numericUpDown2.Value));
+            }
+        }
+
+        private void ReadTriggerInterval()
+        {
+            byte[] data;
+            byte depth;
+            LJV7IF_TARGET_SETTING targetSetting = new LJV7IF_TARGET_SETTING();
+
+            data = new byte[NativeMethods.ProgramSettingSize];
+            data[0] = (byte)0x3;
+
+            depth = Convert.ToByte("01", 16);
+            targetSetting.byType = Convert.ToByte("10", 16);
+            targetSetting.byCategory = Convert.ToByte("00", 16);
+            targetSetting.byItem = Convert.ToByte("05", 16);
+            targetSetting.byTarget1 = Convert.ToByte("00", 16);
+            targetSetting.byTarget2 = Convert.ToByte("00", 16);
+            targetSetting.byTarget3 = Convert.ToByte("00", 16);
+            targetSetting.byTarget4 = Convert.ToByte("00", 16);
+
+            //int t = (int)((float)numericUpDown1.Value / 0.001);
+            //string tempWord = t.ToString("X4");
+            //string trimStr = tempWord.Remove(0, 2) + "," + tempWord.Remove(2);
+
+            //if (trimStr.Length > 0)
+            //{
+            //    string[] aSrc = trimStr.Split(',');
+            //    if (aSrc.Length > 0)
+            //    {
+            //        data = Array.ConvertAll<string, byte>(aSrc,
+            //            delegate (string s) { return Convert.ToByte(s, 16); });
+            //    }
+            //}
+            Array.Resize(ref data, Convert.ToInt32("2"));
+
+            using (PinnedObject pin = new PinnedObject(data))
+            {
+                int rc = NativeMethods.LJV7IF_GetSetting(_currentDeviceId, depth, targetSetting,
+                    pin.Pointer, (uint)data.Length);
+                AddLogResult(rc, Resources.SID_GET_SETTING);
+                if (rc == (int)Rc.Ok)
+                {
+                    AddLog("\t    0  1  2  3  4  5  6  7");
+                    StringBuilder sb = new StringBuilder();
+                    // Get data display
+                    for (int i = 0; i < 2; i++)
+                    {
+                        if ((i % 8) == 0) sb.Append(string.Format("  [0x{0:x4}] ", i));
+
+                        sb.Append(string.Format("{0:x2} ", data[i]));
+                        if (((i % 8) == 7) || (i == 2 - 1))
+                        {
+                            AddLog(sb.ToString());
+                            sb.Remove(0, sb.Length);
+                        }
+                    }
+                }
+                numericUpDown1.Value = (decimal)0.001*(data[1] * 256 + data[0]);
+                AddLog(string.Format("触发间距 = {0} mm", numericUpDown1.Value));
+            }
+        }
+
+        private void ReadSampleFrequency()
+        {
+            byte[] data;
+            byte depth;
+            LJV7IF_TARGET_SETTING targetSetting = new LJV7IF_TARGET_SETTING();
+
+            data = new byte[NativeMethods.ProgramSettingSize];
+            data[0] = (byte)0x3;
+
+            depth = Convert.ToByte("01", 16);
+            targetSetting.byType = Convert.ToByte("10", 16);
+            targetSetting.byCategory = Convert.ToByte("00", 16);
+            targetSetting.byItem = Convert.ToByte("02", 16);
+            targetSetting.byTarget1 = Convert.ToByte("00", 16);
+            targetSetting.byTarget2 = Convert.ToByte("00", 16);
+            targetSetting.byTarget3 = Convert.ToByte("00", 16);
+            targetSetting.byTarget4 = Convert.ToByte("00", 16);
+
+            using (PinnedObject pin = new PinnedObject(data))
+            {
+                int rc = NativeMethods.LJV7IF_GetSetting(_currentDeviceId, depth, targetSetting,
+                    pin.Pointer, (uint)data.Length);
+                AddLogResult(rc, Resources.SID_GET_SETTING);
+                if (rc == (int)Rc.Ok)
+                {
+                    AddLog("\t    0  1  2  3  4  5  6  7");
+                    StringBuilder sb = new StringBuilder();
+                    // Get data display
+                    for (int i = 0; i < 2; i++)
+                    {
+                        if ((i % 8) == 0) sb.Append(string.Format("  [0x{0:x4}] ", i));
+
+                        sb.Append(string.Format("{0:x2} ", data[i]));
+                        if (((i % 8) == 7) || (i == 2 - 1))
+                        {
+                            AddLog(sb.ToString());
+                            sb.Remove(0, sb.Length);
+                        }
+                    }
+                }
+            }
+
+            comboBox3.SelectedIndex = data[0];
+            AddLog(string.Format("采样频率 = {0}", comboBox3.Text));
+
+        }
+
+        private void ReadTriggerType()
+        {
+            byte[] data;
+            byte depth;
+            LJV7IF_TARGET_SETTING targetSetting = new LJV7IF_TARGET_SETTING();
+
+            data = new byte[NativeMethods.ProgramSettingSize];
+            data[0] = (byte)0x3;
+
+            depth = Convert.ToByte("01", 16);
+            targetSetting.byType = Convert.ToByte("10", 16);
+            targetSetting.byCategory = Convert.ToByte("00", 16);
+            targetSetting.byItem = Convert.ToByte("01", 16);
+            targetSetting.byTarget1 = Convert.ToByte("00", 16);
+            targetSetting.byTarget2 = Convert.ToByte("00", 16);
+            targetSetting.byTarget3 = Convert.ToByte("00", 16);
+            targetSetting.byTarget4 = Convert.ToByte("00", 16);
+
+            using (PinnedObject pin = new PinnedObject(data))
+            {
+                int rc = NativeMethods.LJV7IF_GetSetting(_currentDeviceId, depth, targetSetting,
+                    pin.Pointer, (uint)data.Length);
+                AddLogResult(rc, Resources.SID_GET_SETTING);
+                if (rc == (int)Rc.Ok)
+                {
+                    AddLog("\t    0  1  2  3  4  5  6  7");
+                    StringBuilder sb = new StringBuilder();
+                    // Get data display
+                    for (int i = 0; i < 2; i++)
+                    {
+                        if ((i % 8) == 0) sb.Append(string.Format("  [0x{0:x4}] ", i));
+
+                        sb.Append(string.Format("{0:x2} ", data[i]));
+                        if (((i % 8) == 7) || (i == 2 - 1))
+                        {
+                            AddLog(sb.ToString());
+                            sb.Remove(0, sb.Length);
+                        }
+                    }
+                }
+            }
+
+            comboBox1.SelectedIndex = data[0];
+            AddLog(string.Format("触发方式为 {0}", comboBox1.Text));
+            
+
+        }
+
+        private void ReadXRange()
+        {
+            byte[] data;
+            byte depth;
+            LJV7IF_TARGET_SETTING targetSetting = new LJV7IF_TARGET_SETTING();
+
+            data = new byte[NativeMethods.ProgramSettingSize];
+            data[0] = (byte)0x3;
+
+            depth = Convert.ToByte("01", 16);
+            targetSetting.byType = Convert.ToByte("10", 16);
+            targetSetting.byCategory = Convert.ToByte("01", 16);
+            targetSetting.byItem = Convert.ToByte("02", 16);
+            targetSetting.byTarget1 = Convert.ToByte("00", 16);
+            targetSetting.byTarget2 = Convert.ToByte("00", 16);
+            targetSetting.byTarget3 = Convert.ToByte("00", 16);
+            targetSetting.byTarget4 = Convert.ToByte("00", 16);
+
+            using (PinnedObject pin = new PinnedObject(data))
+            {
+                int rc = NativeMethods.LJV7IF_GetSetting(_currentDeviceId, depth, targetSetting,
+                    pin.Pointer, (uint)data.Length);
+                AddLogResult(rc, Resources.SID_GET_SETTING);
+                if (rc == (int)Rc.Ok)
+                {
+                    AddLog("\t    0  1  2  3  4  5  6  7");
+                    StringBuilder sb = new StringBuilder();
+                    // Get data display
+                    for (int i = 0; i < 2; i++)
+                    {
+                        if ((i % 8) == 0) sb.Append(string.Format("  [0x{0:x4}] ", i));
+
+                        sb.Append(string.Format("{0:x2} ", data[i]));
+                        if (((i % 8) == 7) || (i == 2 - 1))
+                        {
+                            AddLog(sb.ToString());
+                            sb.Remove(0, sb.Length);
+                        }
+                    }
+                }
+            }
+
+            comboBox2.SelectedIndex = data[0];
+            switch (data[0])
+            {
+                case 0:
+                    {
+                        singleProfilePointCount = 800;
+                        break;
+                    }
+                case 1:
+                    {
+                        singleProfilePointCount = 600;
+                        break;
+                    }
+                case 2:
+                    {
+                        singleProfilePointCount = 400;
+                        break;
+                    }
+
+            }
+            figureX(singleProfilePointCount);
+            AddLog(string.Format("X轴方向采样范围为:{0}\t轮廓点数为{1}", comboBox2.Text,singleProfilePointCount));
+        }
+
+        private void ReadAllSettings()
+        {
+            ReadBatchPoints();
+            ReadTriggerInterval();
+            ReadSampleFrequency();
+            ReadTriggerType();
+            ReadXRange();
+        }
+
+        private void OpenEthernetConnection()
+        {
+            Rc rc = Rc.Ok;
+            // Initialize the DLL
+            rc = (Rc)NativeMethods.LJV7IF_Initialize();
+            if (!CheckReturnCode(rc)) return;
+
+            // Open the communication path
+
+            // Generate the settings for Ethernet communication.
+            try
+            {
+                _ethernetConfig.abyIpAddress = new byte[] {
+                        Convert.ToByte(_txtIpFirstSegment.Text),
+                        Convert.ToByte(_txtIpSecondSegment.Text),
+                        Convert.ToByte(_txtIpThirdSegment.Text),
+                        Convert.ToByte(_txtIpFourthSegment.Text)
+                    };
+                _ethernetConfig.wPortNo = Convert.ToUInt16(_txtCommandPort.Text);
+
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, ex.Message);
+                return;
+            }
+
+            rc = (Rc)NativeMethods.LJV7IF_EthernetOpen(Define.DEVICE_ID, ref _ethernetConfig);
+
+            if (!CheckReturnCode(rc)) return;
+            AddLog("以太网通信开启！");
+        }
+
+        private void figureX(int count)
+        {
+            xscale = new List<double>();
+            for (int i = 0; i < count; i++)
+            {
+                double x = (i - count / 2) * 0.02;
+                xscale.Add(x);
+            }
+        }
+
+        private void profileClear()
+        {
+            currentProfileCount.Text = "0";
+            numericUpDown3.Value = 0;
+            _profileCount.Text = "0";
+            chart1.Series["Profile"].Points.Clear();
+            chart2.Series["Profile"].Points.Clear();
+        }
+
+        private void BuildBatchRecord(BatchRecord r)
+        {
+            string connectionStr = "mongodb://127.0.0.1:27017";
+            MongoClient client = new MongoClient(connectionStr);
+            var database = client.GetDatabase("Record");
+            var collection = database.GetCollection<BsonDocument>(r.date.Replace("-",""));
+            var document = new BsonDocument
+            {
+                { "Data",r.date},
+                { "Time",r.time},
+                { "ProfileCount",r.profileCount},
+                { "PointCount",r.pointCount},
+                { "Interval",r.interval}
+            };
+            for(int i =0; i<r.profileCount;i++)
+            {
+                Dictionary<string, int[]> p = new Dictionary<string, int[]>();
+                p.Add("P" + i.ToString().PadLeft(4, '0'), r.datas[i]);
+                document.AddRange(p);
+            }
+            collection.InsertOne(document);
+            MessageBox.Show("Save Done!");
+        }
+
+        private void button8_Click(object sender, EventArgs e)
+        {
+            BatchRecord res = new BatchRecord();
+            res.date = DateTime.Today.ToString("yyyy-MM-dd");
+            res.time = DateTime.Now.ToLongTimeString();
+            res.profileCount = currentDatas.Count;
+            res.pointCount = currentDatas[0].Count();
+            res.interval = (double)decimal.Round(numericUpDown1.Value,3);
+            res.datas = currentDatas;
+            BuildBatchRecord(res);
+        }
     }
 }

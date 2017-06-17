@@ -50,14 +50,14 @@ namespace QCDS_TestDemo
 		/// <param name="notify">Parameter for notification</param>
 		public static void Add(int index, List<int[]> value, uint notify)
 		{
-			lock (_syncObject[index])
-			{
-				_buffer[index].AddRange(value);
-				_count[index] += (uint)value.Count;
-				_notify[index] |= notify;
-				// Add the batch number if the batch has been finalized.
-				if ((notify & (0x1 << 16)) != 0) _batchNo[index]++;
-			}
+            lock (_syncObject[index])
+            {
+                _buffer[index].AddRange(value);
+                _count[index] += (uint)value.Count;
+                _notify[index] |= notify;
+                // Add the batch number if the batch has been finalized.
+                if ((notify & (0x1 << 16)) != 0) _batchNo[index]++;
+            }
 		}
 
 		/// <summary>

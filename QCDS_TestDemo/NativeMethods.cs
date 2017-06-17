@@ -463,8 +463,9 @@ namespace QCDS_TestDemo
 		/// </summary>
 		internal static int DeviceCount
 		{
-			get { return 6; }
-		}
+            //get { return 6; }
+            get { return 1; }
+        }
 		
 		/// <summary>
 		/// Fixed value for the bytes of environment settings data 
