@@ -63,6 +63,42 @@ namespace QCDS_TestDemo
 		/// </summary>
 		public const double PROFILE_UNIT_MM = 1E-5;
 
-		#endregion
-	}	
+        #endregion
+
+        #region Constant Q_Judgement_Para_Index
+        public const int GAP_WIDTH_MIN = 0;
+        public const int GAP_WIDTH_MAX = 1;
+
+        public const int GAP_POS_MIN = 2;
+        public const int GAP_POS_MAX = 3;
+
+        public const int GAP_HEIGHT_DIFFERENCE_MIN = 4;
+        public const int GAP_HEIGHT_DIFFERENCE_MAX = 5;
+
+        public const int SEAM_WIDTH_MIN = 6;
+        public const int SEAM_WIDTH_MAX = 7;
+
+        public const int SEAM_POS_MIN = 8;
+        public const int SEAM_POS_MAX = 9;
+
+        public const int SEAM_HEIGHT_DIFFERENCE_MIN = 10;
+        public const int SEAM_HEIGHT_DIFFERENCE_MAX = 11;
+
+        public const int SEAM_UP_MAX = 12;
+        public const int SEAM_DOWN_MAX = 13;
+
+        public const int SEAM_GAP_DIFFERENCE_MIN = 14;
+        public const int SEAM_GAP_DIFFERENCE_MAX = 15;
+
+        #endregion
+
+        public const int _currentDeviceId = 0;
+
+        public const int HEADCOUNT = 1;
+
+        public static int LEFT_TO_RIGHT = 0;
+
+        public static int RIGHT_TO_LEFT = 1;
+
+    }	
 }

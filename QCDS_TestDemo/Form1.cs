@@ -97,11 +97,14 @@ namespace QCDS_TestDemo
             public List<int[]> datas;
         }
 
-        private struct MaxPoints
+        private struct ParaSeries
         {
-            public List<double> x;
-            public List<double> y;
+            public List<double> y_left;
+            public List<double> y_right;
+            public List<double> interval;
+            public List<double> middlePosition;
         }
+
         #endregion
 
         #region Field
@@ -156,7 +159,7 @@ namespace QCDS_TestDemo
             _measureDatas = new List<MeasureData>();
             _callback = new HighSpeedDataCallBack(ReceiveHighSpeedData);
             //_callbackOnlyCount = new HighSpeedDataCallBack(CountProfileReceive);
-            
+
 
             for (int i = 0; i < NativeMethods.DeviceCount; i++)
             {
@@ -171,9 +174,15 @@ namespace QCDS_TestDemo
 
         private void Form1_Load(object sender, EventArgs e)
         {
-            OpenEthernetConnection();
-            ReadAllSettings();
+            try
+            {
+                OpenEthernetConnection();
+                ReadAllSettings();
+            }
+            catch { }
+
             ReadTodayRecord();
+            FixAreaSetting();
         }
 
         private void _btnHighSpeedDataEthernetCommunicationInitalize_Click(object sender, EventArgs e)
@@ -185,11 +194,11 @@ namespace QCDS_TestDemo
             _deviceData[_currentDeviceId].MeasureData.Clear();
 
             LJV7IF_ETHERNET_CONFIG ethernetConfig = _ethernetConfig;
-            
+
             int rc = NativeMethods.LJV7IF_HighSpeedDataEthernetCommunicationInitalize(_currentDeviceId, ref ethernetConfig,
                 UInt16.Parse(_txtHighSpeedPort.Text), _callback,
                 1, (uint)_currentDeviceId);
-           
+
             AddLogResult(rc, Resources.SID_HIGH_SPEED_DATA_ETHERNET_COMMUNICATION_INITALIZE);
 
             if (rc == (int)Rc.Ok)
@@ -204,7 +213,7 @@ namespace QCDS_TestDemo
             }
             //_deviceStatusLabels[_currentDeviceId].Text = _deviceData[_currentDeviceId].GetStatusString();
 
-            
+
         }
 
         private void _btnPreStartHighSpeedDataCommunication_Click(object sender, EventArgs e)
@@ -335,13 +344,13 @@ namespace QCDS_TestDemo
             targetSetting.byTarget2 = Convert.ToByte("00", 16);
             targetSetting.byTarget3 = Convert.ToByte("00", 16);
             targetSetting.byTarget4 = Convert.ToByte("00", 16);
-            
+
             string trimStr = "1";
-            if(comboBox1.Text == "连续触发")
+            if (comboBox1.Text == "连续触发")
             {
                 trimStr = "0";
             }
-            else if(comboBox1.Text == "外部触发")
+            else if (comboBox1.Text == "外部触发")
             {
                 trimStr = "1";
             }
@@ -441,8 +450,8 @@ namespace QCDS_TestDemo
 
 
             string tempWord = ((int)numericUpDown2.Value).ToString("X4");
-            string trimStr = tempWord.Remove(0,2) + "," + tempWord.Remove(2);
-            
+            string trimStr = tempWord.Remove(0, 2) + "," + tempWord.Remove(2);
+
             if (trimStr.Length > 0)
             {
                 string[] aSrc = trimStr.Split(',');
@@ -508,7 +517,7 @@ namespace QCDS_TestDemo
                         break;
                     }
             }
-           
+
             if (trimStr.Length > 0)
             {
                 string[] aSrc = trimStr.Split(',');
@@ -665,7 +674,7 @@ namespace QCDS_TestDemo
             var document = collection.Find(new BsonDocument { { "Time", time }, { "PartNumber", 0 } }).ToList();
 
             //var document = collection.Find(new BsonDocument { { "Time", time }, { "PartNumber", 0 } }).Sort(Builders<BsonDocument>.Sort.Ascending("PartNumber")).ToList();
-            
+
             brRead = new BatchRecord();
             brRead.datas = new List<int[]>();
             brRead.date = document[0]["Data"].ToString();
@@ -677,7 +686,7 @@ namespace QCDS_TestDemo
             int parts = document[0]["AllParts"].ToInt32();
             int[] temp = new int[document[0]["PointCount"].ToInt32()];
 
-            for (int i =0; i<parts;i++)
+            for (int i = 0; i < parts; i++)
             {
                 document = collection.Find(new BsonDocument { { "Time", time }, { "PartNumber", i } }).ToList();
                 int CurrentPartCount = document[0]["CurrentPartCount"].ToInt32();
@@ -691,7 +700,7 @@ namespace QCDS_TestDemo
                 }
             }
 
-            
+            ParaSeries seriesLR = PointsSeries(brRead.profileCount, brRead.datas, figureXR(brRead.pointCount / 2, brRead.interval));
 
             //for (int i = 0; i<document.Count;i++)
             //{
@@ -714,10 +723,29 @@ namespace QCDS_TestDemo
             //    {
             //        temp[j] = (document[0]["P" + i.ToString().PadLeft(4, '0')][j].ToInt32());
             //    }
-                
-                //brRead.datas.Add(temp);
+
+            //brRead.datas.Add(temp);
             //    brRead.datas.Add(OriginDataFix(temp));
             //}
+            chart7.Series["y_left"].Points.DataBindY(seriesLR.y_left);
+            chart7.Series["y_right"].Points.DataBindY(seriesLR.y_right);
+            chart7.Series["interval"].Points.DataBindY(seriesLR.interval);
+            chart7.Series["MiddlePosition"].Points.DataBindY(seriesLR.middlePosition);
+            
+
+           // List<double> heighDiff = new List<double>();
+           // for(int i = 0;i<=brRead.profileCount;i++)
+           // {
+           //     List<int> Y = new List<int>();
+           //     for(int j = 0; j<brRead.pointCount/2;j++)
+           //     {
+           //         Y.Add(brRead.datas[i][j]);
+           //     }
+           // }
+
+
+
+
 
 
             label9.Text = brRead.profileCount.ToString();
@@ -727,17 +755,22 @@ namespace QCDS_TestDemo
 
         }
 
+        private void button10_Click(object sender, EventArgs e)
+        {
+            FixAreaSetting();
+        }
+
         private void numericUpDown3_ValueChanged(object sender, EventArgs e)
         {
             try
             {
-                ChartFigure(currentDatas[(int)numericUpDown3.Value], singleProfilePointCount*2, figureXR(singleProfilePointCount,(double)numericUpDown1.Value));
+                ChartFigure(currentDatas[(int)numericUpDown3.Value], singleProfilePointCount * 2, figureXR(singleProfilePointCount, (double)numericUpDown1.Value));
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
             }
-            
+
         }
 
         private void numericUpDown4_ValueChanged(object sender, EventArgs e)
@@ -754,7 +787,7 @@ namespace QCDS_TestDemo
             int count = 0;
             uint notify = 0;
             int batchNo = 0;
-            
+
             List<int[]> data = ThreadSafeBuffer.Get(0, out notify, out batchNo);
             //ThreadSafeBuffer.Clear(0);
 
@@ -772,10 +805,10 @@ namespace QCDS_TestDemo
                     //if (_deviceData[0].ProfileData.Count < Define.WRITE_DATA_SIZE)
                     //{
                     //    _deviceData[0].ProfileData.Add(new ProfileData(profile, _profileInfo[0]));
-                        int[] temp = new int[singleProfilePointCount * 2];
-                        Array.Copy(profile, 6, temp, 0, singleProfilePointCount * 2);
-                        currentDatas.Add(temp);
-                        //ChartFigure(temp);
+                    int[] temp = new int[singleProfilePointCount * 2];
+                    Array.Copy(profile, 6, temp, 0, singleProfilePointCount * 2);
+                    currentDatas.Add(temp);
+                    //ChartFigure(temp);
                     //}
                     count++;
                     currentBatchProfileCount++;
@@ -785,7 +818,7 @@ namespace QCDS_TestDemo
                 _profileCount.Text = (Convert.ToInt32(_profileCount.Text) + count).ToString();
                 currentProfileCount.Text = (Convert.ToInt32(currentProfileCount.Text) + count).ToString();
             }
-            
+
             if (notify != 0)
             {
                 AddLog(string.Format("当前批计数达到上限,或中断当前批处理"));
@@ -880,7 +913,7 @@ namespace QCDS_TestDemo
             var database = client.GetDatabase("Record");
             var collection = database.GetCollection<BsonDocument>(date);
             var document = collection.Find(new BsonDocument { { "Data", dateTimePicker1.Value.ToString("yyyy-MM-dd") }, { "PartNumber", 0 } }).ToList();
-            
+
             if (document.Count == 0)
             {
                 MessageBox.Show("当天没有存储的轮廓记录");
@@ -1375,7 +1408,7 @@ namespace QCDS_TestDemo
                 }
                 numericUpDown2.Value = data[1] * 256 + data[0];
                 numericUpDown3.Maximum = data[1] * 256 + data[0] - 1;
-                AddLog(string.Format("批处理点数 = {0}",numericUpDown2.Value));
+                AddLog(string.Format("批处理点数 = {0}", numericUpDown2.Value));
             }
         }
 
@@ -1434,7 +1467,7 @@ namespace QCDS_TestDemo
                         }
                     }
                 }
-                numericUpDown1.Value = (decimal)0.001*(data[1] * 256 + data[0]);
+                numericUpDown1.Value = (decimal)0.001 * (data[1] * 256 + data[0]);
                 AddLog(string.Format("触发间距 = {0} mm", numericUpDown1.Value));
             }
         }
@@ -1530,7 +1563,7 @@ namespace QCDS_TestDemo
 
             comboBox1.SelectedIndex = data[0];
             AddLog(string.Format("触发方式为 {0}", comboBox1.Text));
-            
+
 
         }
 
@@ -1597,7 +1630,7 @@ namespace QCDS_TestDemo
 
             }
             figureX(singleProfilePointCount);
-            AddLog(string.Format("X轴方向采样范围为:{0}\t轮廓点数为{1}", comboBox2.Text,singleProfilePointCount));
+            AddLog(string.Format("X轴方向采样范围为:{0}\t轮廓点数为{1}", comboBox2.Text, singleProfilePointCount));
         }
 
         private void ReadAllSettings()
@@ -1666,10 +1699,10 @@ namespace QCDS_TestDemo
             string connectionStr = "mongodb://127.0.0.1:27017";
             MongoClient client = new MongoClient(connectionStr);
             var database = client.GetDatabase("Record");
-            var collection = database.GetCollection<BsonDocument>(r.date.Replace("-",""));
-            
+            var collection = database.GetCollection<BsonDocument>(r.date.Replace("-", ""));
+
             int part = 0;
-            if(r.profileCount % Save_Part_Count == 0)
+            if (r.profileCount % Save_Part_Count == 0)
             {
                 part = r.profileCount / Save_Part_Count;
             }
@@ -1680,7 +1713,7 @@ namespace QCDS_TestDemo
             for (int i = 0; i < part; i++)
             {
                 int currentPartCount = Save_Part_Count;
-                if (i == part-1)
+                if (i == part - 1)
                 {
                     currentPartCount = r.profileCount - Save_Part_Count * i;
                 }
@@ -1695,7 +1728,7 @@ namespace QCDS_TestDemo
                     { "PartNumber",i},
                     { "CurrentPartCount",currentPartCount}
                 };
-                for(int j = Save_Part_Count * i; j< Save_Part_Count * i + currentPartCount; j++)
+                for (int j = Save_Part_Count * i; j < Save_Part_Count * i + currentPartCount; j++)
                 {
                     Dictionary<string, int[]> p = new Dictionary<string, int[]>();
                     p.Add("P" + j.ToString().PadLeft(4, '0'), r.datas[j]);
@@ -1703,7 +1736,7 @@ namespace QCDS_TestDemo
                 }
                 collection.InsertOne(document);
             }
-            
+
             //for(int i =0; i<r.profileCount;i++)
             //{
             //    Dictionary<string, int[]> p = new Dictionary<string, int[]>();
@@ -1860,30 +1893,30 @@ namespace QCDS_TestDemo
             return k;
         }
 
-        private List<double> figureXR(int count,double interval)
+        private List<double> figureXR(int count, double interval)
         {
             List<double> xRscale = new List<double>();
             for (int i = 0; i < count; i++)
             {
                 double x = (i - count / 2) * 0.02;
-                xRscale.Add(x);
+                xRscale.Add(Math.Round(x, 2));
             }
-            
+
             return xRscale;
         }
-        
+
         private void ChartFigureR(int[] profile, int pointCount, List<double> xscaleR)
         {
             List<double> A = new List<double>();
             List<double> B = new List<double>();
             List<double> p = new List<double>();
-            for(int i =0; i<pointCount/2;i++)
+            for (int i = 0; i < pointCount / 2; i++)
             {
                 A.Add((double)profile[i] / 100000);
                 B.Add((double)profile[i + pointCount / 2] / 100000);
             }
-            
-            List<double> A1 = QCDSDataFitWithDirection(xscaleR, A, (int)numericUpDown5.Value,LEFT_TO_RIGHT);
+
+            List<double> A1 = QCDSDataFitWithDirection(xscaleR, A, (int)numericUpDown5.Value, LEFT_TO_RIGHT);
             List<double> A2 = QCDSDataFitWithDirection(xscaleR, A, (int)numericUpDown5.Value, RIGHT_TO_LEFT);
             List<double> A3 = QCDSDataFit2(xscaleR, A, (int)numericUpDown5.Value);
 
@@ -1895,7 +1928,7 @@ namespace QCDS_TestDemo
             chart4.Series["k"].Points.DataBindXY(xscaleR, A1);
             chart4.Series["k'"].Points.DataBindXY(xscaleR, A2);
             //chart4.Series["k - Move"].Points.DataBindXY(xscaleR, A3);
-            
+
             chart3.Series["Profile"].Points.DataBindXY(xscaleR, B);
             chart3.Series["k"].Points.DataBindXY(xscaleR, B1);
 
@@ -1903,11 +1936,29 @@ namespace QCDS_TestDemo
             chart5.Series["k"].Points.DataBindXY(xscaleR, A1);
             chart5.Series["k'"].Points.DataBindXY(xscaleR, A2);
             //chart5.Series["k - Move"].Points.DataBindXY(xscaleR, A3);
-            
+
+            int left = searchX(xscaleR, chart5.Series["FixArea"].Points[1].XValue);
+            int right = searchX(xscaleR, chart5.Series["FixArea"].Points[2].XValue);
+            int count = xscaleR.Count;
+            List<double> x_Area = new List<double>();
+            List<double> y_Area = new List<double>();
+            List<double> K1_Area = new List<double>();
+            List<double> K2_Area = new List<double>();
+
+            for (int i = left; i <= right; i++)
+            {
+                x_Area.Add(xscaleR[i]);
+                y_Area.Add(A[i]);
+                K1_Area.Add(A1[i]);
+                K2_Area.Add(A2[i]);
+            }
+
             try
             {
-                MaxPoints ps = findMaxK(xscaleR, A, A1, A2);
-                chart5.Series["Points"].Points.DataBindXY(ps.x,ps.y);
+                //MaxPoints ps = findMaxK(xscaleR, A, A1, A2);
+                //MaxPoints ps = findMaxK(x_Area, y_Area, K1_Area, K2_Area);
+                MaxPoints ps = findMax(x_Area, y_Area, K1_Area, K2_Area);
+                chart5.Series["Points"].Points.DataBindXY(ps.x, ps.y);
             }
             catch (Exception e)
             {
@@ -1933,7 +1984,7 @@ namespace QCDS_TestDemo
             result.x.Add(listX[v2.index]);
             result.y.Add(listY[v1.index]);
             result.y.Add(listY[v2.index]);
-            
+
             return result;
         }
 
@@ -1941,11 +1992,11 @@ namespace QCDS_TestDemo
         {
             int[] res = new int[x.Length];
             int current = 0;
-            for(int i =0; i<x.Length;i++)
+            for (int i = 0; i < x.Length; i++)
             {
                 if ((x[i] != -2147483648) & (x[i] != -2147483647) & (x[i] != -2147483646) & (x[i] != -2147483645))
                 {
-                    res[i]= x[i];
+                    res[i] = x[i];
                     current = x[i];
                 }
                 else
@@ -1980,6 +2031,369 @@ namespace QCDS_TestDemo
             }
         }
 
-        
+        /* 
+		 * MaxPoints.x contains the horizontal value of most left and most right,i.e [x1,x2],x1 is tht most left value
+		 * MaxPoints.y contains the vertical value of most left and most right,i.e [y1,y2],y1 is tht most left value
+		 * listK1, right to left
+		 * listK2, left to right
+		 */
+        private MaxPoints findMax(List<double> listX, List<double> listY, List<double> listK1, List<double> listK2)
+        {
+            MaxPoints max = new MaxPoints();
+            max.x = new List<double>();
+            max.y = new List<double>();
+
+            MaxPoints min = new MaxPoints();
+            min.x = new List<double>();
+            min.y = new List<double>();
+
+            // var v1, v2;  max value
+            //var v3, v4;  min value
+            int cnt = 0;
+
+            List<double> tmp;
+
+            bool isSummit = true;
+            var v1 = listK1.Select((m, index) => new { index, m }).OrderByDescending(n => n.m).Last();
+            var v3 = listK1.Select((m, index) => new { index, m }).OrderByDescending(n => n.m).First();
+            var v2 = listK1.Select((m, index) => new { index, m }).OrderByDescending(n => n.m).Last();
+            var v4 = listK1.Select((m, index) => new { index, m }).OrderByDescending(n => n.m).First();
+            if (v1.index < v3.index) //  summit,else valley 
+            {
+                isSummit = true;
+            }
+            else
+            {
+                isSummit = false;
+            }
+            int a, b;
+            while (isSummit)
+            {
+                cnt++;
+                v1 = listK1.Select((m, index) => new { index, m }).OrderByDescending(n => n.m).Last();
+                v2 = listK2.Select((m, index) => new { index, m }).OrderByDescending(n => n.m).Last();
+
+                if (isSummit)
+                {
+                    a = v1.index;
+                    b = v2.index;
+                    tmp = listK2;
+                }
+                else
+                {
+                    b = v1.index;
+                    a = v2.index;
+                    tmp = listK1;
+                }
+                if (a > b && cnt < 2) //cnt < 2 to avoid infinate loop, it may happen
+                {
+                    // set listK1[0-index] = 0
+                    for (int i = 0; i <= a; i++)
+                    {
+                        tmp[i] = 0;
+                        continue;
+                    }
+                }
+                break;
+            }
+            cnt = 0;
+            while (!isSummit)
+            {
+                cnt++;
+                v3 = listK1.Select((m, index) => new { index, m }).OrderByDescending(n => n.m).First();
+                v4 = listK2.Select((m, index) => new { index, m }).OrderByDescending(n => n.m).First();
+
+                if (v3.index > v4.index && cnt < 2) //cnt < 2 to avoid infinate loop, it may happen
+                {
+                    // set listK1[0-index] = 0
+                    for (int i = 0; i <= v3.index; i++)
+                    {
+                        listK2[i] = 0;
+                        continue;
+                    }
+                }
+                break;
+            }
+            if (isSummit)
+            {
+                max.x.Add(listX[v1.index]);
+                max.x.Add(listX[v2.index]);
+                max.y.Add(listY[v1.index]);
+                max.y.Add(listY[v2.index]);
+                return max;
+            }
+            else
+            {
+                min.x.Add(listX[v3.index]);
+                min.x.Add(listX[v4.index]);
+                min.y.Add(listY[v3.index]);
+                min.y.Add(listY[v4.index]);
+                return min;
+            }
+        }
+
+        private void FixAreaSetting()
+        {
+            double x_middle = (double)numericUpDown7.Value;
+            double x_left = x_middle - (double)numericUpDown8.Value;
+            double x_right = x_middle + (double)numericUpDown8.Value;
+
+            double[] max = new double[1] { chart5.ChartAreas[0].AxisY.Maximum };
+            double[] min = new double[1] { chart5.ChartAreas[0].AxisY.Minimum };
+
+            chart5.Series["FixArea"].Points.Clear();
+
+            chart5.Series["FixArea"].Points.Add();
+            chart5.Series["FixArea"].Points[0].XValue = x_middle;
+            chart5.Series["FixArea"].Points[0].YValues = min;
+            chart5.Series["FixArea"].Points.Add();
+            chart5.Series["FixArea"].Points[1].XValue = x_left;
+            chart5.Series["FixArea"].Points[1].YValues = min;
+            chart5.Series["FixArea"].Points.Add();
+            chart5.Series["FixArea"].Points[2].XValue = x_right;
+            chart5.Series["FixArea"].Points[2].YValues = min;
+
+            chart5.Series["FixArea"].Points.Add();
+            chart5.Series["FixArea"].Points[3].XValue = x_middle;
+            chart5.Series["FixArea"].Points[3].YValues = max;
+            chart5.Series["FixArea"].Points.Add();
+            chart5.Series["FixArea"].Points[4].XValue = x_left;
+            chart5.Series["FixArea"].Points[4].YValues = max;
+            chart5.Series["FixArea"].Points.Add();
+            chart5.Series["FixArea"].Points[5].XValue = x_right;
+            chart5.Series["FixArea"].Points[5].YValues = max;
+
+        }
+
+        private int searchX(List<double> listX, double valueP)
+        {
+            int index = -1;
+            for (int i = 0; i < listX.Count; i++)
+            {
+                if (listX[i] == Math.Round(valueP, 2))
+                {
+                    index = i;
+                    return index;
+                }
+            }
+            return index;
+        }
+
+        private bool HighSpeedDataEthernetCommunicationInitalize()
+        {
+            _sendCommand = SendCommand.HighSpeedDataEthernetCommunicationInitalize;
+            _deviceData[_currentDeviceId].ProfileData.Clear();  //Clear the retained profile data.
+            _deviceData[_currentDeviceId].MeasureData.Clear();
+
+            LJV7IF_ETHERNET_CONFIG ethernetConfig = _ethernetConfig;
+
+            int rc = NativeMethods.LJV7IF_HighSpeedDataEthernetCommunicationInitalize(_currentDeviceId, ref ethernetConfig,
+                UInt16.Parse(_txtHighSpeedPort.Text), _callback,
+                1, (uint)_currentDeviceId);
+
+            AddLogResult(rc, Resources.SID_HIGH_SPEED_DATA_ETHERNET_COMMUNICATION_INITALIZE);
+
+            if (rc == (int)Rc.Ok)
+            {
+                _deviceData[_currentDeviceId].Status = DeviceStatus.EthernetFast;
+                _deviceData[_currentDeviceId].EthernetConfig = ethernetConfig;
+                //MessageBox.Show("高速连接初始化 OK！");
+            }
+            else
+            {
+                MessageBox.Show("高速连接初始化 Fail！");
+                return false;
+            }
+            return true;
+        }
+
+        private bool PreStartHighSpeedDataCommunication()
+        {
+            _sendCommand = SendCommand.PreStartHighSpeedDataCommunication;
+            LJV7IF_HIGH_SPEED_PRE_START_REQ req = new LJV7IF_HIGH_SPEED_PRE_START_REQ();
+            req.bySendPos = Convert.ToByte("2");
+            // @Point
+            // # SendPos is used to specify which profile to start sending data from during high-speed communication.
+            // # When "Overwrite" is specified for the operation when memory full and 
+            //   "0: From previous send complete position" is specified for the send start position,
+            //    if the LJ-V continues to accumulate profiles, the LJ-V memory will become full,
+            //    and the profile at the previous send complete position will be overwritten with a new profile.
+            //    In this situation, because the profile at the previous send complete position is not saved, an error will occur.
+
+            LJV7IF_PROFILE_INFO profileInfo = new LJV7IF_PROFILE_INFO();
+
+            int rc = NativeMethods.LJV7IF_PreStartHighSpeedDataCommunication(_currentDeviceId, ref req, ref profileInfo);
+            AddLogResult(rc, Resources.SID_PRE_START_HIGH_SPEED_DATA_COMMUNICATION);
+            if (rc == (int)Rc.Ok)
+            {
+                // Response data display
+                AddLog(Utility.ConvertToLogString(profileInfo).ToString());
+                _profileInfo[_currentDeviceId] = profileInfo;
+                //MessageBox.Show("高速通信预开启 OK！");
+            }
+            else
+            {
+                MessageBox.Show("高速通信预开启 Fail！");
+                return false;
+            }
+            return true;
+        }
+
+        private bool StartHighSpeedDataCommunication()
+        {
+            _sendCommand = SendCommand.StartHighSpeedDataCommunication;
+
+            ThreadSafeBuffer.ClearBuffer(_currentDeviceId);
+            _profileCount.Text = "0";
+            currentProfileCount.Text = "0";
+            int rc = NativeMethods.LJV7IF_StartHighSpeedDataCommunication(_currentDeviceId);
+            // @Point
+            //  If the LJ-V does not measure the profile for 30 seconds from the start of transmission,
+            //  "0x00000008" is stored in dwNotify of the callback function.
+            currentBatchProfileCount = 0;
+            timer1.Start();
+            //ReadingThread.Start();
+            AddLogResult(rc, Resources.SID_START_HIGH_SPEED_DATA_COMMUNICATION);
+            if (rc == (int)Rc.Ok)
+            {
+                //MessageBox.Show("高速通信启动 OK！");
+            }
+            else
+            {
+                MessageBox.Show("高速通信启动 Fail！");
+                return false;
+            }
+            return true;
+        }
+
+        private bool StopHighSpeedDataCommunication()
+        {
+            int rc = NativeMethods.LJV7IF_StopHighSpeedDataCommunication(_currentDeviceId);
+            timer1.Stop();
+            AddLogResult(rc, Resources.SID_STOP_HIGH_SPEED_DATA_COMMUNICATION);
+            if (rc != (int)Rc.Ok)
+            {
+                MessageBox.Show("高速通信停止 Fail！");
+                return false;
+            }
+            return true;
+        }
+
+        private bool HighSpeedDataCommunicationFinalize()
+        {
+            int rc = NativeMethods.LJV7IF_HighSpeedDataCommunicationFinalize(_currentDeviceId);
+            AddLogResult(rc, Resources.SID_HIGH_SPEED_DATA_COMMUNICATION_FINALIZE);
+
+            LJV7IF_ETHERNET_CONFIG config = _deviceData[_currentDeviceId].EthernetConfig;
+            _deviceData[_currentDeviceId].Status = DeviceStatus.Ethernet;
+            _deviceData[_currentDeviceId].EthernetConfig = config;
+
+            timer1.Stop();
+            profileClear();
+            if (rc != (int)Rc.Ok)
+            {
+                MessageBox.Show("高速连接断开 Fail！");
+                return false;
+            }
+            return true;
+        }
+
+        private ParaSeries PointsSeries(int profileCount,List<int[]> datas, List<double> xscaleR)
+        {
+            List<MaxPoints> res = new List<MaxPoints>();
+
+            for(int i =0; i<profileCount;i++)
+            {
+                List<double> A = new List<double>();
+                List<double> B = new List<double>();
+                List<double> p = new List<double>();
+                for (int j = 0; j < datas[i].Count() / 2; j++)
+                {
+                    A.Add((double)datas[i][j] / 100000);
+                    B.Add((double)datas[i][j + datas[i].Count() / 2] / 100000);
+                }
+                List<double> A1 = QCDSDataFitWithDirection(xscaleR, A, (int)numericUpDown5.Value, LEFT_TO_RIGHT);
+                List<double> A2 = QCDSDataFitWithDirection(xscaleR, A, (int)numericUpDown5.Value, RIGHT_TO_LEFT);
+
+                int left = searchX(xscaleR, chart5.Series["FixArea"].Points[1].XValue);
+                int right = searchX(xscaleR, chart5.Series["FixArea"].Points[2].XValue);
+                int count = xscaleR.Count;
+                List<double> x_Area = new List<double>();
+                List<double> y_Area = new List<double>();
+                List<double> K1_Area = new List<double>();
+                List<double> K2_Area = new List<double>();
+
+                for (int m = left; m <= right; m++)
+                {
+                    x_Area.Add(xscaleR[m]);
+                    y_Area.Add(A[m]);
+                    K1_Area.Add(A1[m]);
+                    K2_Area.Add(A2[m]);
+                }
+                
+                MaxPoints ps = findMax(x_Area, y_Area, K1_Area, K2_Area);
+                res.Add(ps);
+            }
+            ParaSeries series = new ParaSeries();
+            series.y_left = new List<double>();
+            series.y_right = new List<double>();
+            series.interval = new List<double>();
+            series.middlePosition = new List<double>();
+            foreach (MaxPoints p in res)
+            {
+                series.y_left.Add(p.y[0]);
+                series.y_right.Add(p.y[1]);
+                series.interval.Add(p.x[1] - p.x[0]);
+                series.middlePosition.Add((p.y[0]+ p.y[1])/2);
+            }
+            return series;
+        }
+
+        private List<int> profileA(List<int> p)
+        {
+            List<int> res= new List<int>();
+            for(int i = 0; i<p.Count/2;i++)
+            {
+                res.Add(p[i]);
+            }
+            return res;
+        }
+
+        /* 
+        * listX, x axis value list of the profile
+        * listY, y axis value list of the profile
+        * gapLeftStart, x start index of the left-boundary of the gap
+        * gapLeftEnd,x end index of the left-boundary of the gap
+        * gapRightStart, x start index of the right-boundary of the gap
+        * gapRightEnd,x end index of the right-boundary of the gap
+        * 
+        * return: the height difference, height.left - height.right
+        */
+        private double gapHeightDifference(List<double> listX, List<double> listY, int gapLeftStart, int gapLeftEnd, int gapRightStart, int gapRightEnd)
+        {
+            if (gapLeftStart > gapRightEnd || gapRightStart > gapRightEnd || gapLeftEnd > gapRightStart)
+                return 0;
+            if (listY.Count != listX.Count)
+                return 0;
+            if (gapRightEnd - gapLeftStart + 1 > listX.Count)
+                return 0;
+
+            int i = 0;
+            double sum = 0;
+            for (i = gapLeftStart; i <= gapLeftEnd; i++)
+            {
+                sum += listY.ElementAt(i);
+            }
+            double averLeft = sum / (gapLeftEnd - gapLeftStart + 1);
+
+            sum = 0;
+            for (i = gapRightStart; i <= gapRightEnd; i++)
+            {
+                sum += listY.ElementAt(i);
+            }
+            double averRight = sum / (gapRightEnd - gapRightStart + 1);
+
+            return averLeft - averRight;
+        }
     }
 }

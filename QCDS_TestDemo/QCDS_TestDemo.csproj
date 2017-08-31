@@ -75,14 +75,43 @@
     <Compile Include="Form1.Designer.cs">
       <DependentUpon>Form1.cs</DependentUpon>
     </Compile>
+    <Compile Include="FormControllerSetting.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FormControllerSetting.Designer.cs">
+      <DependentUpon>FormControllerSetting.cs</DependentUpon>
+    </Compile>
+    <Compile Include="FormEthSetting.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="FormEthSetting.Designer.cs">
+      <DependentUpon>FormEthSetting.cs</DependentUpon>
+    </Compile>
+    <Compile Include="Formmain.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="Formmain.Designer.cs">
+      <DependentUpon>Formmain.cs</DependentUpon>
+    </Compile>
+    <Compile Include="general.cs" />
     <Compile Include="NativeMethods.cs" />
     <Compile Include="PinnedObject.cs" />
+    <Compile Include="ProfileData.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="ThreadSafeBuffer.cs" />
     <Compile Include="Utility.cs" />
     <EmbeddedResource Include="Form1.resx">
       <DependentUpon>Form1.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FormControllerSetting.resx">
+      <DependentUpon>FormControllerSetting.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="FormEthSetting.resx">
+      <DependentUpon>FormEthSetting.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Formmain.resx">
+      <DependentUpon>Formmain.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
